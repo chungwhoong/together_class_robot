@@ -1,0 +1,6 @@
+# Dahamkke Bot: ILI9488 IPS 480x320 on SPI0 CE0
+dtparam=spi=on
+dtoverlay=dahamkke-ili9488
+
+# XPT2046/ADS7846-compatible resistive touch on SPI0 CE1, IRQ GPIO17
+dtoverlay=ads7846,cs=1,penirq=17,penirq_pull=2,speed=2000000,xohms=100,pmax=255,swapxy

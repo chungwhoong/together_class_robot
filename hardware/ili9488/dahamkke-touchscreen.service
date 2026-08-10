@@ -1,0 +1,15 @@
+[Unit]
+Description=Dahamkke Bot DSI Touchscreen GUI
+After=local-fs.target sound.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/chungwhoong/interpreter-bot
+ExecStart=/home/chungwhoong/interpreter-bot/run_touchscreen_lcd.sh
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+Environment=TOUCH_DISPLAY_TYPE=dsi
+
+[Install]
+WantedBy=multi-user.target

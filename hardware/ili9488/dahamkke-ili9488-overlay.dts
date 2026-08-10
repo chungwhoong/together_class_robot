@@ -1,0 +1,49 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2835";
+
+    fragment@0 {
+        target = <&spidev0>;
+        __overlay__ {
+            status = "disabled";
+        };
+    };
+
+    fragment@1 {
+        target = <&spi0>;
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <0>;
+            status = "okay";
+
+            panel@0 {
+                compatible = "ili9488-ips", "panel-mipi-dbi-spi";
+                reg = <0>;
+                spi-max-frequency = <32000000>;
+
+                /* ILI9488 SPI: R/G/B use the upper six bits of each byte. */
+                format = "b6x2g6x2r6x2";
+
+                reset-gpios = <&gpio 25 0>;
+                dc-gpios = <&gpio 24 0>;
+
+                width-mm = <74>;
+                height-mm = <49>;
+
+                panel-timing {
+                    hactive = <480>;
+                    vactive = <320>;
+                    hback-porch = <0>;
+                    vback-porch = <0>;
+                    hfront-porch = <0>;
+                    hsync-len = <0>;
+                    vfront-porch = <0>;
+                    vsync-len = <0>;
+                    clock-frequency = <0>;
+                };
+            };
+        };
+    };
+};

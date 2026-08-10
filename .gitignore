@@ -1,0 +1,6 @@
+.env
+.venv/
+.agents/
+.codex/
+__pycache__/
+*.py[cod]
