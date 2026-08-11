@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tempfile
+import wave
 
 from openai import OpenAI
 
@@ -167,4 +168,31 @@ Input: {json.dumps(text, ensure_ascii=False)}
             response_format="wav",
         ) as response:
             response.stream_to_file(output_path)
+        self._prepend_tts_silence(output_path)
         return output_path
+
+    def _prepend_tts_silence(self, audio_path: Path) -> None:
+        silence_ms = self.config.tts_leading_silence_ms
+        if silence_ms <= 0:
+            return
+        with wave.open(str(audio_path), "rb") as source:
+            params = source.getparams()
+            frames = source.readframes(source.getnframes())
+        silent_frames = round(params.framerate * silence_ms / 1000)
+        silence = b"\x00" * silent_frames * params.nchannels * params.sampwidth
+        handle = tempfile.NamedTemporaryFile(
+            prefix="tts_ready_", suffix=".wav", dir=self.temp_dir, delete=False
+        )
+        ready_path = Path(handle.name)
+        handle.close()
+        try:
+            with wave.open(str(ready_path), "wb") as target:
+                target.setnchannels(params.nchannels)
+                target.setsampwidth(params.sampwidth)
+                target.setframerate(params.framerate)
+                target.setcomptype(params.comptype, params.compname)
+                target.writeframes(silence)
+                target.writeframes(frames)
+            ready_path.replace(audio_path)
+        finally:
+            ready_path.unlink(missing_ok=True)

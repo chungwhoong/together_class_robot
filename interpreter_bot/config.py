@@ -18,6 +18,7 @@ class Config:
     stt_model: str = "gpt-4o-transcribe"
     tts_model: str = "tts-1"
     tts_voice: str = "nova"
+    tts_leading_silence_ms: int = 300
     max_history_turns: int = 12
     supabase_url: str = ""
     supabase_anon_key: str = ""
@@ -45,6 +46,9 @@ class Config:
             stt_model=os.getenv("OPENAI_STT_MODEL", "gpt-4o-transcribe"),
             tts_model=os.getenv("OPENAI_TTS_MODEL", "tts-1"),
             tts_voice=os.getenv("OPENAI_TTS_VOICE", "nova"),
+            tts_leading_silence_ms=max(
+                0, int(os.getenv("TTS_LEADING_SILENCE_MS", "300"))
+            ),
             max_history_turns=max(1, int(os.getenv("MAX_HISTORY_TURNS", "12"))),
             supabase_url=os.getenv("SUPABASE_URL", "").strip(),
             supabase_anon_key=os.getenv("SUPABASE_ANON_KEY", "").strip(),
