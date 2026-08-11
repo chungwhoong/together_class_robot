@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from array import array
 import json
+import logging
 import math
 import os
 import re
@@ -23,6 +24,9 @@ from .audio import AudioPlayer, AudioRecorder
 from .config import Config
 from .openai_service import OpenAIVoiceService
 from .supabase_service import DebateTopic, Persona, SupabaseLearningService
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 BG = "#07162f"
@@ -493,6 +497,7 @@ class TouchscreenApp:
         ).start()
 
     def _speak_for_screen(self, token: int, text: str) -> None:
+        speech_path: Path | None = None
         try:
             speech_path = self.service.synthesize(text)
             if token == self.screen_token:
@@ -503,7 +508,10 @@ class TouchscreenApp:
                     self.robot_talking = False
         except Exception:
             self.robot_talking = False
-            pass
+            LOGGER.exception("화면 안내 음성 재생 실패")
+        finally:
+            if speech_path:
+                speech_path.unlink(missing_ok=True)
 
     def _home_voice_loop(self, token: int, greet: bool) -> None:
         try:
@@ -1720,6 +1728,7 @@ class TouchscreenApp:
             self.player.play(speech_path)
         finally:
             self.robot_talking = False
+            speech_path.unlink(missing_ok=True)
 
     def _run_worker(
         self,
@@ -1732,6 +1741,7 @@ class TouchscreenApp:
             try:
                 work()  # type: ignore[operator]
             except Exception as exc:
+                LOGGER.exception("음성 작업 실패: screen=%s", self.screen)
                 if report_errors and token == self.screen_token:
                     self.root.after(0, lambda err=exc: self._show_error(str(err)))
             finally:
@@ -1778,7 +1788,9 @@ class TouchscreenApp:
 
     def _show_error(self, message: str) -> None:
         self.busy = False
-        self._set_status("오류가 발생했습니다", RED)
+        LOGGER.error("화면 오류: %s", message)
+        self._set_status(f"오류: {message}", RED)
+        self._set_result(f"오류가 발생했습니다.\n{message}")
         self._set_mic_enabled(True)
         messagebox.showerror("다함께 봇", message, parent=self.root)
 

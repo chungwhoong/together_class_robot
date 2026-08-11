@@ -96,25 +96,35 @@ class AudioPlayer:
     def __init__(self, config: Config) -> None:
         self.config = config
         self._process: subprocess.Popen[bytes] | None = None
+        self._lock = threading.RLock()
 
     def play(self, path: Path) -> None:
         self.stop()
-        self._process = subprocess.Popen(
-            ["aplay", "-q", "-D", self.config.speaker_device, str(path)]
-        )
-        return_code = self._process.wait()
-        self._process = None
-        if return_code:
+        with self._lock:
+            process = subprocess.Popen(
+                ["aplay", "-q", "-D", self.config.speaker_device, str(path)]
+            )
+            self._process = process
+        return_code = process.wait()
+        with self._lock:
+            was_current = self._process is process
+            if was_current:
+                self._process = None
+        # A newer announcement/answer intentionally stops the previous sound.
+        # Only report failure when this process was still the active playback.
+        if return_code and was_current:
             raise RuntimeError(f"aplay가 종료 코드 {return_code}로 실패했습니다.")
 
     def stop(self) -> None:
-        if self._process and self._process.poll() is None:
-            self._process.terminate()
+        with self._lock:
+            process = self._process
+            self._process = None
+        if process and process.poll() is None:
+            process.terminate()
             try:
-                self._process.wait(timeout=2)
+                process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                self._process.kill()
-        self._process = None
+                process.kill()
 
     def close(self) -> None:
         self.stop()

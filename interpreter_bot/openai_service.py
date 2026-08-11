@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import tempfile
 
 from openai import OpenAI
 
@@ -154,7 +155,11 @@ Input: {json.dumps(text, ensure_ascii=False)}
         return translation, spoken_language
 
     def synthesize(self, text: str) -> Path:
-        output_path = self.temp_dir / "response.wav"
+        handle = tempfile.NamedTemporaryFile(
+            prefix="tts_", suffix=".wav", dir=self.temp_dir, delete=False
+        )
+        handle.close()
+        output_path = Path(handle.name)
         with self.client.audio.speech.with_streaming_response.create(
             model=self.config.tts_model,
             voice=self.config.tts_voice,
