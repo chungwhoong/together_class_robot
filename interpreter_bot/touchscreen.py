@@ -22,6 +22,7 @@ from PIL import Image, ImageTk
 from .audio import AudioPlayer, AudioRecorder
 from .config import Config
 from .openai_service import OpenAIVoiceService
+from .supabase_service import DebateTopic, Persona, SupabaseLearningService
 
 
 BG = "#07162f"
@@ -52,7 +53,9 @@ START_ANNOUNCEMENT = (
 )
 SELECTION_ANNOUNCEMENT = (
     "AI와 대화하며 국어공부를 하고 싶으면 대화하기 버튼을 눌러주세요. "
-    "언어가 다른 친구와 이야기하고 싶으면 통역하기 버튼을 눌러주세요"
+    "언어가 다른 친구와 이야기하고 싶으면 통역하기 버튼을 눌러주세요. "
+    "AI와 토론을 하고 싶으면 토론하기 버튼을 눌러주세요. "
+    "교과서 속 인물과 이야기하고 싶으면 인터뷰하기 버튼을 눌러주세요"
 )
 
 TOUCH_LANGUAGES = [
@@ -102,6 +105,7 @@ class TouchscreenApp:
         self.recorder = AudioRecorder(config, self.temp_dir)
         self.player = AudioPlayer(config)
         self.service = OpenAIVoiceService(config, self.temp_dir)
+        self.learning_data = SupabaseLearningService(config)
         self.screen = ""
         self.screen_token = 0
         self.selected_language: tuple[str, str] | None = None
@@ -124,6 +128,11 @@ class TouchscreenApp:
         self.mic_icon_active: tk.PhotoImage | None = None
         self.status_label: tk.Label | None = None
         self.result_text: tk.Text | None = None
+        self.debate_topics: list[DebateTopic] = []
+        self.personas: list[Persona] = []
+        self.selected_debate: DebateTopic | None = None
+        self.selected_persona: Persona | None = None
+        self.learning_list_frame: tk.Frame | None = None
         self.robot_canvas: tk.Canvas | None = None
         self.robot_source = Image.open(
             Path(__file__).resolve().parent.parent
@@ -175,6 +184,10 @@ class TouchscreenApp:
                 "language_select": self.show_selection,
                 "conversation": self.show_language_select,
                 "interpret": self.show_selection,
+                "debate": self.show_selection,
+                "debate_chat": self.show_debate,
+                "interview": self.show_selection,
+                "interview_chat": self.show_interview,
             }
             route = back_routes.get(self.screen)
             if route:
@@ -186,6 +199,14 @@ class TouchscreenApp:
             self.show_language_select()
         elif self.screen == "selection" and key == "t":
             self.show_interpret()
+        elif self.screen == "selection" and key == "c":
+            self.show_debate()
+        elif self.screen == "selection" and key == "i":
+            self.show_interview()
+        elif self.screen == "debate" and key.isdigit():
+            self._choose_debate(int(key) - 1)
+        elif self.screen == "interview" and key.isdigit():
+            self._choose_persona(int(key) - 1)
         elif self.screen == "language_select" and key in CHAT_LANGUAGES:
             self._select_chat_language(key)
         elif self.screen == "language_select" and key in {"return", "kp_enter"}:
@@ -194,6 +215,11 @@ class TouchscreenApp:
             self.toggle_conversation_recording()
         elif self.screen == "conversation" and key in {"up", "down"}:
             self._scroll_result(-1 if key == "up" else 1)
+        elif self.screen in {"debate_chat", "interview_chat"}:
+            if key == "space":
+                self.toggle_learning_recording()
+            elif key in {"up", "down"}:
+                self._scroll_result(-1 if key == "up" else 1)
         elif self.screen == "interpret":
             if key in {"o", "t"}:
                 self._activate_dropdown("source" if key == "o" else "target")
@@ -260,6 +286,8 @@ class TouchscreenApp:
             "target_language": self.control_target_language,
             "active_dropdown": self.active_dropdown,
             "talking": self.robot_talking,
+            "debate_topic": self.selected_debate.title if self.selected_debate else None,
+            "persona": self.selected_persona.name if self.selected_persona else None,
         }
 
     def _new_screen(self, name: str) -> int:
@@ -274,7 +302,13 @@ class TouchscreenApp:
             child.destroy()
         return self.screen_token
 
-    def _top_bar(self, parent: tk.Widget, title: str, show_back: bool = True) -> None:
+    def _top_bar(
+        self,
+        parent: tk.Widget,
+        title: str,
+        show_back: bool = True,
+        back_command: object | None = None,
+    ) -> None:
         bar_height = 46 if self.compact else 72
         bar = tk.Frame(parent, bg=BG, height=bar_height)
         bar.pack(
@@ -294,7 +328,7 @@ class TouchscreenApp:
             self._button(
                 bar,
                 "← 뒤로",
-                self.show_home,
+                back_command or self.show_home,
                 width=7 if self.compact else 12,
                 bg="#334d70",
                 font_size=12 if self.compact else 18,
@@ -367,9 +401,13 @@ class TouchscreenApp:
         token, lower = self._build_robot_menu(
             "selection", show_back=True, back_command=self.show_home
         )
-        self.status_text = "D 대화하기 · T 통역하기"
+        self.status_text = "D 대화 · T 통역 · C 토론 · I 인터뷰"
         buttons = tk.Frame(lower, bg=PANEL)
-        buttons.pack(fill="both", expand=True, padx=14, pady=(12, 2))
+        buttons.pack(fill="both", expand=True, padx=18, pady=(7, 2))
+        buttons.grid_columnconfigure(0, weight=1)
+        buttons.grid_columnconfigure(1, weight=1)
+        buttons.grid_rowconfigure(0, weight=1)
+        buttons.grid_rowconfigure(1, weight=1)
         self._button(
             buttons,
             "대화하기",
@@ -377,7 +415,7 @@ class TouchscreenApp:
             width=12 if self.compact else 16,
             bg=BLUE,
             font_size=18,
-        ).pack(side="left", expand=True, padx=8)
+        ).grid(row=0, column=0, sticky="nsew", padx=6, pady=3)
         self._button(
             buttons,
             "통역하기",
@@ -385,10 +423,26 @@ class TouchscreenApp:
             width=12 if self.compact else 16,
             bg="#7357e8",
             font_size=18,
-        ).pack(side="left", expand=True, padx=8)
+        ).grid(row=0, column=1, sticky="nsew", padx=6, pady=3)
+        self._button(
+            buttons,
+            "토론하기",
+            self.show_debate,
+            width=12 if self.compact else 16,
+            bg="#e28a17",
+            font_size=18,
+        ).grid(row=1, column=0, sticky="nsew", padx=6, pady=3)
+        self._button(
+            buttons,
+            "인터뷰하기",
+            self.show_interview,
+            width=12 if self.compact else 16,
+            bg="#d45087",
+            font_size=18,
+        ).grid(row=1, column=1, sticky="nsew", padx=6, pady=3)
         tk.Label(
             lower,
-            text="키보드: D 대화하기  ·  T 통역하기",
+            text="키보드: D 대화 · T 통역 · C 토론 · I 인터뷰",
             bg=PANEL,
             fg=MUTED,
             font=("Noto Sans CJK KR", 9 if self.compact else 14),
@@ -850,6 +904,296 @@ class TouchscreenApp:
                     lambda: self._set_status(
                         "다른 질문은 Space 또는 마이크 버튼", CYAN
                     ),
+                )
+        finally:
+            audio_path.unlink(missing_ok=True)
+
+    def _build_learning_picker(self, screen: str, title: str, guide: str) -> int:
+        token = self._new_screen(screen)
+        self.status_text = guide
+        frame = tk.Frame(self.root, bg=BG)
+        frame.pack(fill="both", expand=True)
+        self._top_bar(frame, title, back_command=self.show_selection)
+        tk.Label(
+            frame,
+            text=guide,
+            bg=BG,
+            fg=CYAN,
+            font=("Noto Sans CJK KR", 13 if self.compact else 19, "bold"),
+        ).pack(pady=(2, 8))
+        self.learning_list_frame = tk.Frame(frame, bg=BG)
+        self.learning_list_frame.pack(fill="both", expand=True, padx=18, pady=(0, 12))
+        tk.Label(
+            self.learning_list_frame,
+            text="Supabase 학습자료를 불러오는 중...",
+            bg=BG,
+            fg=MUTED,
+            font=("Noto Sans CJK KR", 14 if self.compact else 20),
+        ).pack(expand=True)
+        return token
+
+    def show_debate(self) -> None:
+        token = self._build_learning_picker(
+            "debate", "💬 토론 & 토의 친구", "토론할 교과서 주제를 선택하세요"
+        )
+        threading.Thread(
+            target=lambda: self._load_debates(token),
+            daemon=True,
+            name="supabase-debates",
+        ).start()
+
+    def _load_debates(self, token: int) -> None:
+        topics = self.learning_data.load_debates()
+        if token == self.screen_token:
+            self.root.after(0, lambda: self._render_debates(token, topics))
+
+    def _render_debates(self, token: int, topics: list[DebateTopic]) -> None:
+        if token != self.screen_token or not self.learning_list_frame:
+            return
+        self.debate_topics = topics
+        panel = self.learning_list_frame
+        for child in panel.winfo_children():
+            child.destroy()
+        for column in range(2):
+            panel.grid_columnconfigure(column, weight=1)
+        for index, topic in enumerate(topics[:8]):
+            label = f"{index + 1}. {topic.title}\n{topic.unit_title}"
+            self._button(
+                panel,
+                label,
+                lambda position=index: self._choose_debate(position),
+                width=28,
+                bg="#225f91" if index % 2 == 0 else "#6b4ca5",
+                font_size=12,
+            ).grid(
+                row=index // 2,
+                column=index % 2,
+                sticky="nsew",
+                padx=6,
+                pady=5,
+            )
+        self._set_status("숫자 1~8 또는 주제 버튼을 선택하세요", CYAN)
+
+    def _choose_debate(self, index: int) -> None:
+        if self.screen != "debate" or not 0 <= index < len(self.debate_topics):
+            return
+        self.selected_debate = self.debate_topics[index]
+        self.show_debate_chat()
+
+    def show_interview(self) -> None:
+        token = self._build_learning_picker(
+            "interview", "🎭 교과서 인물 인터뷰", "인터뷰할 교과서 속 인물을 선택하세요"
+        )
+        threading.Thread(
+            target=lambda: self._load_personas(token),
+            daemon=True,
+            name="supabase-personas",
+        ).start()
+
+    def _load_personas(self, token: int) -> None:
+        try:
+            personas = self.learning_data.load_personas()
+            error = "" if personas else "등록된 공용 인물 자료가 없습니다."
+        except Exception as exc:
+            personas = []
+            error = f"Supabase 자료를 불러오지 못했습니다: {exc}"
+        if token == self.screen_token:
+            self.root.after(
+                0, lambda: self._render_personas(token, personas, error)
+            )
+
+    def _render_personas(
+        self, token: int, personas: list[Persona], error: str
+    ) -> None:
+        if token != self.screen_token or not self.learning_list_frame:
+            return
+        self.personas = personas
+        panel = self.learning_list_frame
+        for child in panel.winfo_children():
+            child.destroy()
+        if error:
+            tk.Label(
+                panel, text=error, bg=BG, fg=RED, wraplength=700,
+                font=("Noto Sans CJK KR", 15, "bold"),
+            ).pack(expand=True)
+            return
+        for column in range(2):
+            panel.grid_columnconfigure(column, weight=1)
+        for index, persona in enumerate(personas[:8]):
+            self._button(
+                panel,
+                f"{index + 1}. {persona.name}\n{persona.description}",
+                lambda position=index: self._choose_persona(position),
+                width=28,
+                bg="#7b3f78" if index % 2 == 0 else "#a34f6f",
+                font_size=12,
+            ).grid(
+                row=index // 2,
+                column=index % 2,
+                sticky="nsew",
+                padx=6,
+                pady=5,
+            )
+        self._set_status("숫자 1~8 또는 인물 버튼을 선택하세요", CYAN)
+
+    def _choose_persona(self, index: int) -> None:
+        if self.screen != "interview" or not 0 <= index < len(self.personas):
+            return
+        self.selected_persona = self.personas[index]
+        self.show_interview_chat()
+
+    def show_debate_chat(self) -> None:
+        if not self.selected_debate:
+            self.show_debate()
+            return
+        topic = self.selected_debate
+        greeting = (
+            f"토론 주제는 {topic.title}입니다. 자신의 생각과 까닭을 말해 주세요."
+        )
+        token = self._show_learning_chat(
+            "debate_chat", f"토론: {topic.title}", self.show_debate, greeting
+        )
+        self._announce_screen(token, greeting)
+
+    def show_interview_chat(self) -> None:
+        if not self.selected_persona:
+            self.show_interview()
+            return
+        persona = self.selected_persona
+        greeting = f"안녕하세요. 저는 {persona.name}입니다. 무엇이 궁금한가요?"
+        token = self._show_learning_chat(
+            "interview_chat",
+            f"인물 인터뷰: {persona.name}",
+            self.show_interview,
+            greeting,
+        )
+        self._announce_screen(token, greeting)
+
+    def _show_learning_chat(
+        self, screen: str, title: str, back_command: object, greeting: str
+    ) -> int:
+        token = self._new_screen(screen)
+        self.status_text = "Space 또는 마이크 버튼을 눌러 말하세요"
+        frame = tk.Frame(self.root, bg=BG)
+        frame.pack(fill="both", expand=True)
+        frame.grid_rowconfigure(0, weight=7, uniform="learning-chat")
+        frame.grid_rowconfigure(1, weight=3, uniform="learning-chat")
+        frame.grid_columnconfigure(0, weight=1)
+        upper = tk.Frame(frame, bg=BG)
+        upper.grid(row=0, column=0, sticky="nsew")
+        self.robot_canvas = tk.Canvas(upper, bg=BG, highlightthickness=0, bd=0)
+        self.robot_canvas.pack(fill="both", expand=True)
+        self.robot_canvas.bind("<Configure>", self._draw_robot)
+        self._animate_robot()
+        tk.Label(
+            upper, text=title, bg=BG, fg=WHITE,
+            font=("Noto Sans CJK KR", 14 if self.compact else 19, "bold"),
+        ).place(relx=0.02, y=8, anchor="nw")
+        self._button(
+            upper, "← 뒤로가기", back_command, width=9,
+            bg="#334d70", font_size=10,
+        ).place(relx=0.985, y=6, anchor="ne")
+        lower = tk.Frame(frame, bg=PANEL)
+        lower.grid(row=1, column=0, sticky="nsew")
+        self.status_label = tk.Label(
+            lower, text=self.status_text, bg=PANEL, fg=CYAN,
+            font=("Noto Sans CJK KR", 10 if self.compact else 14, "bold"),
+        )
+        self.status_label.pack(fill="x")
+        content = tk.Frame(lower, bg=PANEL)
+        content.pack(fill="both", expand=True)
+        self.mic_icon = self._make_mic_icon(WHITE)
+        self.mic_icon_active = self._make_mic_icon("#ffd166")
+        self.mic_button = self._button(
+            content, "마이크", self.toggle_learning_recording,
+            width=11, bg=BLUE, font_size=14,
+        )
+        self.mic_button.configure(
+            image=self.mic_icon, compound="left", width=120, height=42
+        )
+        self.mic_button.pack(side="left", padx=8, pady=5)
+        self.result_text = tk.Text(
+            content, height=3, bg="#091b33", fg=WHITE, relief="flat",
+            wrap="word", state="disabled",
+            font=("Noto Sans CJK KR", 10 if self.compact else 14), padx=6, pady=3,
+        )
+        scrollbar = ttk.Scrollbar(content, orient="vertical", command=self.result_text.yview)
+        self.result_text.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y", padx=(0, 5), pady=4)
+        self.result_text.pack(side="left", fill="both", expand=True, padx=(0, 5), pady=4)
+        self._set_result(greeting)
+        return token
+
+    def toggle_learning_recording(self) -> None:
+        if self.busy or self.screen not in {"debate_chat", "interview_chat"}:
+            return
+        if not self.recorder.recording:
+            try:
+                self.recorder.start()
+                self._set_status("듣는 중", RED)
+                if self.mic_button:
+                    self.mic_button.configure(
+                        bg=RED, text="듣기 종료", image=self.mic_icon_active
+                    )
+            except Exception as exc:
+                self._show_error(f"녹음을 시작하지 못했습니다: {exc}")
+            return
+        try:
+            audio_path = self.recorder.stop()
+            if self.mic_button:
+                self.mic_button.configure(bg=BLUE, text="마이크", image=self.mic_icon)
+            if not audio_path:
+                self._set_status("음성이 녹음되지 않았습니다", RED)
+                return
+            self.busy = True
+            self._set_mic_enabled(False)
+            self._set_status("AI가 답변을 준비 중", CYAN)
+            token = self.screen_token
+            self._run_worker(
+                token, lambda: self._process_learning_voice(audio_path, token)
+            )
+        except Exception as exc:
+            self._show_error(f"녹음을 완료하지 못했습니다: {exc}")
+
+    def _process_learning_voice(self, audio_path: Path, token: int) -> None:
+        try:
+            question = self.service.transcribe(audio_path)
+            if not question:
+                raise RuntimeError("음성이 인식되지 않았습니다.")
+            if self.screen == "debate_chat" and self.selected_debate:
+                item = self.selected_debate
+                instructions = (
+                    "당신은 초등 국어 토론 수업의 친절한 AI 사회자입니다. "
+                    f"논제는 '{item.prompt}'입니다. 학생의 주장을 존중하고, 근거를 "
+                    "짚은 뒤 다른 관점이나 반론을 한 가지 제시하고 생각을 넓히는 "
+                    "질문으로 끝내세요. 한국어 3~5문장, 마크다운 없이 답하세요."
+                )
+                answer = self.service.guided_chat(
+                    question, instructions, f"debate:{item.id}"
+                )
+                speaker = "사회자 AI"
+            elif self.screen == "interview_chat" and self.selected_persona:
+                item = self.selected_persona
+                instructions = (
+                    f"{item.system_prompt}\n반드시 {item.name}의 1인칭으로, 초등학생이 "
+                    "이해할 수 있는 한국어 2~4문장으로 답하세요. 마크다운은 쓰지 마세요."
+                )
+                answer = self.service.guided_chat(
+                    question, instructions, f"persona:{item.id}"
+                )
+                speaker = item.name
+            else:
+                raise RuntimeError("토론 또는 인터뷰 자료가 선택되지 않았습니다.")
+            if token != self.screen_token:
+                return
+            self.root.after(
+                0, lambda: self._set_result(f"나: {question}\n\n{speaker}: {answer}")
+            )
+            self.root.after(0, lambda: self._set_status("AI가 답변 중", GREEN))
+            self._speak(answer)
+            if token == self.screen_token:
+                self.root.after(
+                    0, lambda: self._set_status("다시 말하려면 마이크 또는 Space", CYAN)
                 )
         finally:
             audio_path.unlink(missing_ok=True)
@@ -1398,7 +1742,9 @@ class TouchscreenApp:
 
     def _worker_finished(self) -> None:
         self.busy = False
-        if self.screen in {"conversation", "interpret"}:
+        if self.screen in {
+            "conversation", "interpret", "debate_chat", "interview_chat"
+        }:
             self._set_mic_enabled(True)
 
     def _set_status_if(self, token: int, text: str) -> None:

@@ -105,7 +105,13 @@ class SharedController:
                     + "    "
                     + self._button("T  통역하기", PURPLE),
                     width,
-                )
+                ),
+                self._center(
+                    self._button("C  토론하기", GREEN)
+                    + "    "
+                    + self._button("I  인터뷰하기", PURPLE),
+                    width,
+                ),
             ]
         if screen == "language_select":
             selected = state.get("chat_language") or "없음"
@@ -133,6 +139,17 @@ class SharedController:
                 RED if recording else BLUE,
             )
             return [self._center(selectors, width), self._center(mic, width)] + self._result_lines(state, width)
+        if screen == "debate":
+            return [self._center("숫자 1~8로 토론 주제를 선택하세요", width)]
+        if screen == "interview":
+            return [self._center("숫자 1~8로 인터뷰 인물을 선택하세요", width)]
+        if screen in {"debate_chat", "interview_chat"}:
+            label = state.get("debate_topic") if screen == "debate_chat" else state.get("persona")
+            mic = self._button(
+                "SPACE  ■ 듣기 종료" if recording else "SPACE  ● 마이크",
+                RED if recording else BLUE,
+            )
+            return [self._center(str(label or "학습 대화"), width), self._center(mic, width)] + self._result_lines(state, width)
         return []
 
     def _result_lines(self, state: dict[str, object], width: int) -> list[str]:
@@ -153,13 +170,17 @@ class SharedController:
             "language_select": "대화 언어 선택",
             "conversation": "AI 대화하기",
             "interpret": "통역하기",
+            "debate": "토론 주제 선택",
+            "debate_chat": "AI 토론하기",
+            "interview": "인터뷰 인물 선택",
+            "interview_chat": "인물 인터뷰하기",
         }
         print("\033[2J\033[H", end="")
         print(
             f"{PANEL}{BOLD}{WHITE}"
             f"{self._center(titles.get(screen, screen), columns)}{RESET}"
         )
-        if screen in {"home", "selection", "conversation"}:
+        if screen in {"home", "selection", "conversation", "debate_chat", "interview_chat"}:
             for line in self._robot(
                 columns, top_height - 1, bool(state.get("talking"))
             ):
@@ -168,6 +189,9 @@ class SharedController:
             if screen == "language_select":
                 print(self._center("[ 한국어 K ]   [ 중국어 C ]", columns))
                 print(self._center("[ 베트남어 V ] [ 러시아어 R ]", columns))
+            elif screen in {"debate", "interview"}:
+                label = "토론 주제" if screen == "debate" else "인터뷰 인물"
+                print(self._center(f"{label}를 터치하거나 숫자 1~8을 누르세요", columns))
             else:
                 print(self._center("원본 언어와 통역할 언어를 선택해 주세요", columns))
                 print(self._center("O/T → ↑/↓ → Enter", columns))

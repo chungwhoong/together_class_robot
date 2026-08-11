@@ -22,6 +22,7 @@ class OpenAIVoiceService:
         self.temp_dir = temp_dir
         self.client = OpenAI(api_key=config.api_key)
         self.history: list[dict[str, str]] = []
+        self.mode_histories: dict[str, list[dict[str, str]]] = {}
 
     def transcribe(self, audio_path: Path) -> str:
         with audio_path.open("rb") as audio:
@@ -79,6 +80,34 @@ class OpenAIVoiceService:
             ]
         )
         self.history = self.history[-self.config.max_history_turns * 2 :]
+        return answer
+
+    def guided_chat(
+        self,
+        user_text: str,
+        instructions: str,
+        history_key: str,
+    ) -> str:
+        """Run a separate, prompt-guided conversation for debate or persona mode."""
+        history = self.mode_histories.setdefault(history_key, [])
+        response = self.client.responses.create(
+            model=self.config.llm_model,
+            input=[
+                {"role": "developer", "content": instructions},
+                *history,
+                {"role": "user", "content": user_text},
+            ],
+        )
+        answer = response.output_text.strip()
+        if not answer:
+            raise ValueError("AI 답변이 비어 있습니다.")
+        history.extend(
+            [
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": answer},
+            ]
+        )
+        self.mode_histories[history_key] = history[-self.config.max_history_turns * 2 :]
         return answer
 
     def translate(self, text: str, source_language: str, target_language: str) -> str:

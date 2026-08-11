@@ -5,6 +5,25 @@ ALSA의 `arecord`/`aplay`와 OpenAI API를 이용하는 push-to-talk MVP입니�
 `plughw:CARD=Audio,DEV=0`, 16 kHz·16비트·모노입니다. 카드 이름을 사용하므로
 재부팅 후 ALSA 카드 번호가 바뀌어도 동일한 USB 장치를 찾습니다.
 
+## 토론·인물 인터뷰
+
+선택 화면은 다음 2×2 메뉴와 키보드 단축키를 제공합니다.
+
+```text
+[대화하기 D] [통역하기 T]
+[토론하기 C] [인터뷰하기 I]
+```
+
+토론하기는 Supabase의 `textbooks` 토론 자료를 우선 사용하며, 등록 자료가
+없거나 네트워크가 끊기면 국어 교과서 기본 토론 주제로 동작합니다. 인터뷰하기는
+`textbooks`와 `personas`를 연결해 교과서 속 인물과 음성 인터뷰를 진행합니다.
+Supabase 주소와 공개 anon 키는 코드가 아닌 `.env`에 설정합니다.
+
+```dotenv
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-supabase-anon-key
+```
+
 ## 준비
 
 - Raspberry Pi OS와 Python 3.10 이상
