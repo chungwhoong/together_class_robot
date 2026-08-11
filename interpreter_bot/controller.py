@@ -180,7 +180,7 @@ class SharedController:
             f"{PANEL}{BOLD}{WHITE}"
             f"{self._center(titles.get(screen, screen), columns)}{RESET}"
         )
-        if screen in {"home", "selection", "conversation", "debate_chat", "interview_chat"}:
+        if screen in {"home", "selection", "conversation"}:
             for line in self._robot(
                 columns, top_height - 1, bool(state.get("talking"))
             ):
@@ -192,6 +192,8 @@ class SharedController:
             elif screen in {"debate", "interview"}:
                 label = "토론 주제" if screen == "debate" else "인터뷰 인물"
                 print(self._center(f"{label}를 터치하거나 숫자 1~8을 누르세요", columns))
+            elif screen in {"debate_chat", "interview_chat"}:
+                print(self._center("AI 답변은 왼쪽 · 내 답변은 오른쪽", columns))
             else:
                 print(self._center("원본 언어와 통역할 언어를 선택해 주세요", columns))
                 print(self._center("O/T → ↑/↓ → Enter", columns))

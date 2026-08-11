@@ -132,6 +132,7 @@ class TouchscreenApp:
         self.mic_icon_active: tk.PhotoImage | None = None
         self.status_label: tk.Label | None = None
         self.result_text: tk.Text | None = None
+        self.learning_chat_text: tk.Text | None = None
         self.debate_topics: list[DebateTopic] = []
         self.personas: list[Persona] = []
         self.selected_debate: DebateTopic | None = None
@@ -302,6 +303,7 @@ class TouchscreenApp:
         self.busy = False
         self.status_text = ""
         self.display_result = ""
+        self.learning_chat_text = None
         for child in self.root.winfo_children():
             child.destroy()
         return self.screen_token
@@ -1059,7 +1061,7 @@ class TouchscreenApp:
             f"토론 주제는 {topic.title}입니다. 자신의 생각과 까닭을 말해 주세요."
         )
         token = self._show_learning_chat(
-            "debate_chat", f"토론: {topic.title}", self.show_debate, greeting
+            "debate_chat", "AI 토론하기", self.show_debate, greeting
         )
         self._announce_screen(token, greeting)
 
@@ -1084,53 +1086,98 @@ class TouchscreenApp:
         self.status_text = "Space 또는 마이크 버튼을 눌러 말하세요"
         frame = tk.Frame(self.root, bg=BG)
         frame.pack(fill="both", expand=True)
-        frame.grid_rowconfigure(0, weight=7, uniform="learning-chat")
-        frame.grid_rowconfigure(1, weight=3, uniform="learning-chat")
+        frame.grid_rowconfigure(0, weight=0)
+        frame.grid_rowconfigure(1, weight=1)
+        frame.grid_rowconfigure(2, weight=0)
         frame.grid_columnconfigure(0, weight=1)
-        upper = tk.Frame(frame, bg=BG)
-        upper.grid(row=0, column=0, sticky="nsew")
-        self.robot_canvas = tk.Canvas(upper, bg=BG, highlightthickness=0, bd=0)
-        self.robot_canvas.pack(fill="both", expand=True)
-        self.robot_canvas.bind("<Configure>", self._draw_robot)
-        self._animate_robot()
+        header = tk.Frame(frame, bg=BG, height=58)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
         tk.Label(
-            upper, text=title, bg=BG, fg=WHITE,
+            header, text=title, bg=BG, fg=WHITE,
             font=("Noto Sans CJK KR", 14 if self.compact else 19, "bold"),
-        ).place(relx=0.02, y=8, anchor="nw")
+        ).pack(side="left", padx=18, pady=10)
         self._button(
-            upper, "← 뒤로가기", back_command, width=9,
+            header, "← 뒤로가기", back_command, width=9,
             bg="#334d70", font_size=10,
-        ).place(relx=0.985, y=6, anchor="ne")
-        lower = tk.Frame(frame, bg=PANEL)
-        lower.grid(row=1, column=0, sticky="nsew")
+        ).pack(side="right", padx=12, pady=8)
+
+        chat_panel = tk.Frame(frame, bg="#d9e6f2")
+        chat_panel.grid(row=1, column=0, sticky="nsew")
+        self.learning_chat_text = tk.Text(
+            chat_panel,
+            bg="#d9e6f2",
+            fg="#17253a",
+            relief="flat",
+            wrap="word",
+            state="disabled",
+            cursor="arrow",
+            font=("Noto Sans CJK KR", 11 if self.compact else 14),
+            padx=12,
+            pady=10,
+        )
+        margin = 145 if self.compact else 250
+        self.learning_chat_text.tag_configure(
+            "ai_name", foreground="#4f6580", font=("Noto Sans CJK KR", 9, "bold"),
+            lmargin1=18, lmargin2=18, rmargin=margin, spacing1=5,
+        )
+        self.learning_chat_text.tag_configure(
+            "ai", background="#ffffff", foreground="#17253a",
+            lmargin1=18, lmargin2=18, rmargin=margin, spacing3=12,
+        )
+        self.learning_chat_text.tag_configure(
+            "user_name", foreground="#35708f", font=("Noto Sans CJK KR", 9, "bold"),
+            justify="right", lmargin1=margin, lmargin2=margin, rmargin=18, spacing1=5,
+        )
+        self.learning_chat_text.tag_configure(
+            "user", background="#bde9ff", foreground="#102238", justify="right",
+            lmargin1=margin, lmargin2=margin, rmargin=18, spacing3=12,
+        )
+        scrollbar = ttk.Scrollbar(
+            chat_panel, orient="vertical", command=self.learning_chat_text.yview
+        )
+        self.learning_chat_text.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.learning_chat_text.pack(side="left", fill="both", expand=True)
+
+        lower = tk.Frame(frame, bg=PANEL, height=92)
+        lower.grid(row=2, column=0, sticky="ew")
+        lower.grid_propagate(False)
         self.status_label = tk.Label(
             lower, text=self.status_text, bg=PANEL, fg=CYAN,
             font=("Noto Sans CJK KR", 10 if self.compact else 14, "bold"),
         )
-        self.status_label.pack(fill="x")
-        content = tk.Frame(lower, bg=PANEL)
-        content.pack(fill="both", expand=True)
+        self.status_label.pack(side="left", fill="both", expand=True, padx=18)
         self.mic_icon = self._make_mic_icon(WHITE)
         self.mic_icon_active = self._make_mic_icon("#ffd166")
         self.mic_button = self._button(
-            content, "마이크", self.toggle_learning_recording,
+            lower, "마이크", self.toggle_learning_recording,
             width=11, bg=BLUE, font_size=14,
         )
         self.mic_button.configure(
             image=self.mic_icon, compound="left", width=120, height=42
         )
-        self.mic_button.pack(side="left", padx=8, pady=5)
-        self.result_text = tk.Text(
-            content, height=3, bg="#091b33", fg=WHITE, relief="flat",
-            wrap="word", state="disabled",
-            font=("Noto Sans CJK KR", 10 if self.compact else 14), padx=6, pady=3,
+        self.mic_button.pack(side="right", padx=18, pady=12)
+        ai_name = "사회자 AI" if screen == "debate_chat" else (
+            self.selected_persona.name if self.selected_persona else "인물 AI"
         )
-        scrollbar = ttk.Scrollbar(content, orient="vertical", command=self.result_text.yview)
-        self.result_text.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y", padx=(0, 5), pady=4)
-        self.result_text.pack(side="left", fill="both", expand=True, padx=(0, 5), pady=4)
-        self._set_result(greeting)
+        self._append_learning_message(ai_name, greeting, is_user=False)
+        self.display_result = greeting
         return token
+
+    def _append_learning_message(
+        self, sender: str, message: str, *, is_user: bool
+    ) -> None:
+        chat = self.learning_chat_text
+        if not chat or not chat.winfo_exists():
+            return
+        name_tag = "user_name" if is_user else "ai_name"
+        message_tag = "user" if is_user else "ai"
+        chat.configure(state="normal")
+        chat.insert("end", f"{sender}\n", name_tag)
+        chat.insert("end", f" {message} \n", message_tag)
+        chat.configure(state="disabled")
+        chat.see("end")
 
     def toggle_learning_recording(self) -> None:
         if self.busy or self.screen not in {"debate_chat", "interview_chat"}:
@@ -1168,6 +1215,13 @@ class TouchscreenApp:
             question = self.service.transcribe(audio_path)
             if not question:
                 raise RuntimeError("음성이 인식되지 않았습니다.")
+            if token == self.screen_token:
+                self.root.after(
+                    0,
+                    lambda text=question: self._append_learning_message(
+                        "나", text, is_user=True
+                    ),
+                )
             if self.screen == "debate_chat" and self.selected_debate:
                 item = self.selected_debate
                 instructions = (
@@ -1195,8 +1249,12 @@ class TouchscreenApp:
             if token != self.screen_token:
                 return
             self.root.after(
-                0, lambda: self._set_result(f"나: {question}\n\n{speaker}: {answer}")
+                0,
+                lambda name=speaker, text=answer: self._append_learning_message(
+                    name, text, is_user=False
+                ),
             )
+            self.display_result = f"나: {question}\n\n{speaker}: {answer}"
             self.root.after(0, lambda: self._set_status("AI가 답변 중", GREEN))
             self._speak(answer)
             if token == self.screen_token:
@@ -1778,6 +1836,13 @@ class TouchscreenApp:
 
     def _scroll_result(self, direction: int) -> None:
         """Scroll the visible result box one line with the keyboard."""
+        if (
+            self.screen in {"debate_chat", "interview_chat"}
+            and self.learning_chat_text
+            and self.learning_chat_text.winfo_exists()
+        ):
+            self.learning_chat_text.yview_scroll(direction, "units")
+            return
         if not self.result_text or not self.result_text.winfo_exists():
             return
         self.result_text.yview_scroll(direction, "units")
@@ -1790,7 +1855,13 @@ class TouchscreenApp:
         self.busy = False
         LOGGER.error("화면 오류: %s", message)
         self._set_status(f"오류: {message}", RED)
-        self._set_result(f"오류가 발생했습니다.\n{message}")
+        if self.screen in {"debate_chat", "interview_chat"}:
+            self._append_learning_message(
+                "시스템", f"오류가 발생했습니다. {message}", is_user=False
+            )
+            self.display_result = f"오류가 발생했습니다.\n{message}"
+        else:
+            self._set_result(f"오류가 발생했습니다.\n{message}")
         self._set_mic_enabled(True)
         messagebox.showerror("다함께 봇", message, parent=self.root)
 
