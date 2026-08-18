@@ -2,7 +2,7 @@
 
 ALSA의 `arecord`/`aplay`와 OpenAI API를 이용하는 push-to-talk MVP입니다.
 기본값은 마이크 `plughw:CARD=Device,DEV=0`, 스피커
-`plughw:CARD=Device,DEV=0`, 16 kHz·16비트·모노입니다. 카드 이름을 사용하므로
+`plughw:CARD=Audio,DEV=0`, 16 kHz·16비트·모노입니다. 카드 이름을 사용하므로
 재부팅 후 ALSA 카드 번호가 바뀌어도 동일한 USB 장치를 찾습니다.
 
 ## 토론·인물 인터뷰
@@ -50,7 +50,7 @@ chmod +x run.sh
 arecord -l
 aplay -l
 arecord -D plughw:CARD=Device,DEV=0 -f S16_LE -r 16000 -c 1 -d 3 test.wav
-aplay -D plughw:CARD=Device,DEV=0 test.wav
+aplay -D plughw:CARD=Audio,DEV=0 test.wav
 ```
 
 장치 번호가 다르면 `.env`의 `ALSA_MIC_DEVICE`와

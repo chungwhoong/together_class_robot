@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 class Config:
     api_key: str
     mic_device: str = "plughw:CARD=Device,DEV=0"
-    speaker_device: str = "plughw:CARD=Device,DEV=0"
+    speaker_device: str = "plughw:CARD=Audio,DEV=0"
     sample_rate: int = 16_000
     channels: int = 1
     sample_format: str = "S16_LE"
@@ -37,7 +37,7 @@ class Config:
                 "ALSA_MIC_DEVICE", "plughw:CARD=Device,DEV=0"
             ),
             speaker_device=os.getenv(
-                "ALSA_SPEAKER_DEVICE", "plughw:CARD=Device,DEV=0"
+                "ALSA_SPEAKER_DEVICE", "plughw:CARD=Audio,DEV=0"
             ),
             sample_rate=int(os.getenv("AUDIO_SAMPLE_RATE", "16000")),
             channels=int(os.getenv("AUDIO_CHANNELS", "1")),
