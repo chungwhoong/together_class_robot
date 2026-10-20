@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+import uuid as uuidlib
 import wave
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -825,22 +826,22 @@ class TouchscreenApp:
             if self.wifi_password:
                 self.wifi_password.focus_set()
             return
+        if "802.1X" in security or "EAP" in security:
+            self._set_wifi_status(
+                "이 네트워크는 사용자 이름과 인증서가 필요한 학교·기업용 Wi-Fi입니다.",
+                RED,
+            )
+            return
+        if "WEP" in security:
+            self._set_wifi_status("WEP 네트워크는 현재 지원하지 않습니다.", RED)
+            return
         self._set_wifi_status(f"{ssid}에 연결하고 있습니다…")
         if self.wifi_connect_button and self.wifi_connect_button.winfo_exists():
             self.wifi_connect_button.configure(state="disabled")
 
         def connect() -> None:
             try:
-                command = ["nmcli", "--wait", "60", "device", "wifi", "connect", ssid]
-                if password:
-                    command.extend(["password", password])
-                subprocess.run(
-                    command,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=70,
-                )
+                self._activate_wifi(ssid, security, password)
                 self.root.after(0, lambda: self._wifi_connected(ssid))
             except subprocess.CalledProcessError as exc:
                 # CalledProcessError includes argv, which contains the password.
@@ -860,6 +861,82 @@ class TouchscreenApp:
                 )
 
         threading.Thread(target=connect, daemon=True, name="wifi-connect").start()
+
+    @staticmethod
+    def _nmcli(*arguments: str, timeout: int = 15) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["nmcli", *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    @classmethod
+    def _saved_wifi_profile(cls, ssid: str) -> str | None:
+        profiles = cls._nmcli("-t", "-f", "UUID,TYPE", "connection", "show")
+        for line in profiles.stdout.splitlines():
+            fields = cls._split_nmcli_line(line)
+            if len(fields) != 2 or fields[1] not in {"802-11-wireless", "wifi"}:
+                continue
+            profile_uuid = fields[0]
+            profile_ssid = cls._nmcli(
+                "-g", "802-11-wireless.ssid", "connection", "show",
+                "uuid", profile_uuid,
+            ).stdout.strip()
+            if profile_ssid == ssid:
+                return profile_uuid
+        return None
+
+    @classmethod
+    def _activate_wifi(cls, ssid: str, security: str, password: str) -> None:
+        if not security or security == "--":
+            cls._nmcli(
+                "--wait", "60", "device", "wifi", "connect", ssid,
+                "ifname", "wlan0", timeout=70,
+            )
+            return
+
+        key_mgmt = "sae" if "WPA3" in security and "WPA2" not in security else "wpa-psk"
+        profile_uuid = cls._saved_wifi_profile(ssid)
+        if profile_uuid:
+            cls._nmcli(
+                "connection", "modify", "uuid", profile_uuid,
+                "wifi-sec.key-mgmt", key_mgmt,
+                "wifi-sec.psk", password,
+            )
+            cls._nmcli(
+                "--wait", "60", "connection", "up", "uuid", profile_uuid,
+                "ifname", "wlan0", timeout=70,
+            )
+            return
+
+        profile_name = f"dahamkke-{uuidlib.uuid4().hex[:12]}"
+        cls._nmcli(
+            "connection", "add", "type", "wifi", "ifname", "wlan0",
+            "con-name", profile_name, "ssid", ssid,
+            "connection.autoconnect", "no",
+            "wifi-sec.key-mgmt", key_mgmt, "wifi-sec.psk", password,
+        )
+        try:
+            cls._nmcli(
+                "--wait", "60", "connection", "up", "id", profile_name,
+                "ifname", "wlan0", timeout=70,
+            )
+        except Exception:
+            # Only remove the profile created by this failed attempt.
+            try:
+                cls._nmcli("connection", "delete", "id", profile_name)
+            except Exception:
+                LOGGER.exception("실패한 Wi-Fi 임시 프로필 정리 실패")
+            raise
+        try:
+            cls._nmcli(
+                "connection", "modify", "id", profile_name,
+                "connection.autoconnect", "yes",
+            )
+        except Exception:
+            LOGGER.warning("Wi-Fi는 연결됐지만 자동 재연결 설정에 실패했습니다")
 
     def _wifi_connected(self, ssid: str) -> None:
         if self.wifi_password and self.wifi_password.winfo_exists():
