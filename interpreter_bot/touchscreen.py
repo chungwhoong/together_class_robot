@@ -144,6 +144,7 @@ class TouchscreenApp:
         self.wifi_password: tk.Entry | None = None
         self.wifi_status: tk.Label | None = None
         self.wifi_keyboard: tk.Frame | None = None
+        self.wifi_keyboard_toggle: tk.Button | None = None
         self.wifi_shift = False
         self.wifi_networks: list[tuple[str, str, str, bool]] = []
         self.robot_canvas: tk.Canvas | None = None
@@ -498,6 +499,15 @@ class TouchscreenApp:
         self.wifi_password.pack(side="left", fill="x", expand=True, ipady=7)
         self.wifi_password.bind("<Button-1>", self._show_wifi_keyboard)
         self.wifi_password.bind("<FocusIn>", self._show_wifi_keyboard)
+        self.wifi_keyboard_toggle = self._button(
+            controls,
+            "⌨ 키보드",
+            self._toggle_wifi_keyboard,
+            width=9,
+            bg="#385d8a",
+            font_size=12,
+        )
+        self.wifi_keyboard_toggle.pack(side="right", padx=(6, 0))
         self._button(
             controls, "연결", self._connect_selected_wifi,
             width=7, bg=GREEN, font_size=13,
@@ -520,13 +530,25 @@ class TouchscreenApp:
             return
         self.wifi_keyboard = tk.Frame(window, bg="#0b203c")
         self.wifi_keyboard.pack(fill="x", padx=14, pady=(0, 6), before=self.wifi_status)
+        if self.wifi_keyboard_toggle and self.wifi_keyboard_toggle.winfo_exists():
+            self.wifi_keyboard_toggle.configure(text="키보드 닫기", bg="#6b3f55")
         self._render_wifi_keyboard()
+
+    def _toggle_wifi_keyboard(self) -> None:
+        if self.wifi_keyboard and self.wifi_keyboard.winfo_exists():
+            self._hide_wifi_keyboard()
+        else:
+            self._show_wifi_keyboard()
+            if self.wifi_password and self.wifi_password.winfo_exists():
+                self.wifi_password.focus_set()
 
     def _hide_wifi_keyboard(self) -> None:
         if self.wifi_keyboard and self.wifi_keyboard.winfo_exists():
             self.wifi_keyboard.destroy()
         self.wifi_keyboard = None
         self.wifi_shift = False
+        if self.wifi_keyboard_toggle and self.wifi_keyboard_toggle.winfo_exists():
+            self.wifi_keyboard_toggle.configure(text="⌨ 키보드", bg="#385d8a")
 
     def _render_wifi_keyboard(self) -> None:
         keyboard = self.wifi_keyboard
@@ -559,6 +581,7 @@ class TouchscreenApp:
         self._wifi_keyboard_button(
             action_row, "입력 완료", "done", width=2, bg=GREEN
         )
+
     def _wifi_keyboard_button(
         self,
         parent: tk.Frame,
@@ -619,6 +642,7 @@ class TouchscreenApp:
         self.wifi_password = None
         self.wifi_status = None
         self.wifi_keyboard = None
+        self.wifi_keyboard_toggle = None
         self.wifi_shift = False
         self.wifi_networks = []
         if window and window.winfo_exists():
