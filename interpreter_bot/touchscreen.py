@@ -145,7 +145,9 @@ class TouchscreenApp:
         self.wifi_status: tk.Label | None = None
         self.wifi_keyboard: tk.Frame | None = None
         self.wifi_keyboard_toggle: tk.Button | None = None
+        self.wifi_connect_button: tk.Button | None = None
         self.wifi_shift = False
+        self.wifi_scan_generation = 0
         self.wifi_networks: list[tuple[str, str, str, bool]] = []
         self.robot_canvas: tk.Canvas | None = None
         self.robot_source = Image.open(
@@ -188,10 +190,20 @@ class TouchscreenApp:
         self.root.after(0, self.close)
 
     def _on_keypress(self, event: tk.Event) -> None:
+        if self.wifi_window and self.wifi_window.winfo_exists():
+            # The root's bind_all handler must not treat password characters
+            # or Backspace as navigation shortcuts while the dialog is open.
+            return
         self._handle_key_name(str(event.keysym).lower())
 
     def _handle_key_name(self, key: str) -> None:
         key = key.lower()
+        if self.wifi_window and self.wifi_window.winfo_exists():
+            if key == "w":
+                self._toggle_wifi_keyboard()
+            elif key == "backspace":
+                self._close_wifi_selector()
+            return
         if key == "backspace":
             back_routes = {
                 "selection": self.show_home,
@@ -435,16 +447,18 @@ class TouchscreenApp:
         window.title("Wi-Fi 선택")
         window.transient(self.root)
         window.attributes("-topmost", True)
-        width = min(720, max(460, self.root.winfo_width() - 50))
-        height = min(430, max(320, self.root.winfo_height() - 40))
+        width = max(320, min(760, self.root.winfo_width() - 20))
+        height = max(270, min(460, self.root.winfo_height() - 20))
         x = max(0, (self.root.winfo_width() - width) // 2)
         y = max(0, (self.root.winfo_height() - height) // 2)
         window.geometry(f"{width}x{height}+{x}+{y}")
         window.protocol("WM_DELETE_WINDOW", self._close_wifi_selector)
         window.grab_set()
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(1, weight=1)
 
         header = tk.Frame(window, bg=BG)
-        header.pack(fill="x", padx=14, pady=(12, 6))
+        header.grid(row=0, column=0, sticky="ew", padx=14, pady=(8, 3))
         tk.Label(
             header,
             text="Wi-Fi 네트워크 선택",
@@ -462,9 +476,10 @@ class TouchscreenApp:
         ).pack(side="right")
 
         list_frame = tk.Frame(window, bg=PANEL)
-        list_frame.pack(fill="both", expand=True, padx=14, pady=4)
+        list_frame.grid(row=1, column=0, sticky="nsew", padx=14, pady=3)
         self.wifi_listbox = tk.Listbox(
             list_frame,
+            height=7,
             bg="#091b33",
             fg=WHITE,
             selectbackground=BLUE,
@@ -482,7 +497,7 @@ class TouchscreenApp:
         self.wifi_listbox.pack(side="left", fill="both", expand=True, padx=6, pady=6)
 
         controls = tk.Frame(window, bg=BG)
-        controls.pack(fill="x", padx=14, pady=(5, 12))
+        controls.grid(row=2, column=0, sticky="ew", padx=14, pady=(4, 3))
         tk.Label(
             controls, text="비밀번호", bg=BG, fg=WHITE,
             font=("Noto Sans CJK KR", 12, "bold"),
@@ -508,18 +523,20 @@ class TouchscreenApp:
             font_size=12,
         )
         self.wifi_keyboard_toggle.pack(side="right", padx=(6, 0))
-        self._button(
+        self.wifi_connect_button = self._button(
             controls, "연결", self._connect_selected_wifi,
             width=7, bg=GREEN, font_size=13,
-        ).pack(side="right", padx=(8, 0))
+        )
+        self.wifi_connect_button.pack(side="right", padx=(8, 0))
         self.wifi_status = tk.Label(
             window,
             text="주변 Wi-Fi를 검색하고 있습니다…",
             bg=BG,
             fg=CYAN,
             font=("Noto Sans CJK KR", 11),
+            wraplength=width - 30,
         )
-        self.wifi_status.pack(fill="x", padx=14, pady=(0, 8))
+        self.wifi_status.grid(row=4, column=0, sticky="ew", padx=14, pady=(2, 8))
         self._refresh_wifi_networks()
 
     def _show_wifi_keyboard(self, _event: object | None = None) -> None:
@@ -529,7 +546,9 @@ class TouchscreenApp:
         if self.wifi_keyboard and self.wifi_keyboard.winfo_exists():
             return
         self.wifi_keyboard = tk.Frame(window, bg="#0b203c")
-        self.wifi_keyboard.pack(fill="x", padx=14, pady=(0, 6), before=self.wifi_status)
+        self.wifi_keyboard.grid(row=3, column=0, sticky="ew", padx=14, pady=(2, 3))
+        if self.wifi_listbox and self.wifi_listbox.winfo_exists():
+            self.wifi_listbox.configure(height=3)
         if self.wifi_keyboard_toggle and self.wifi_keyboard_toggle.winfo_exists():
             self.wifi_keyboard_toggle.configure(text="키보드 닫기", bg="#6b3f55")
         self._render_wifi_keyboard()
@@ -547,6 +566,8 @@ class TouchscreenApp:
             self.wifi_keyboard.destroy()
         self.wifi_keyboard = None
         self.wifi_shift = False
+        if self.wifi_listbox and self.wifi_listbox.winfo_exists():
+            self.wifi_listbox.configure(height=7)
         if self.wifi_keyboard_toggle and self.wifi_keyboard_toggle.winfo_exists():
             self.wifi_keyboard_toggle.configure(text="⌨ 키보드", bg="#385d8a")
 
@@ -643,7 +664,9 @@ class TouchscreenApp:
         self.wifi_status = None
         self.wifi_keyboard = None
         self.wifi_keyboard_toggle = None
+        self.wifi_connect_button = None
         self.wifi_shift = False
+        self.wifi_scan_generation += 1
         self.wifi_networks = []
         if window and window.winfo_exists():
             try:
@@ -676,8 +699,11 @@ class TouchscreenApp:
         fields.append("".join(current))
         return fields
 
-    def _refresh_wifi_networks(self) -> None:
-        self._set_wifi_status("주변 Wi-Fi를 검색하고 있습니다…")
+    def _refresh_wifi_networks(self, connected_ssid: str | None = None) -> None:
+        self.wifi_scan_generation += 1
+        generation = self.wifi_scan_generation
+        if connected_ssid is None:
+            self._set_wifi_status("주변 Wi-Fi를 검색하고 있습니다…")
 
         def scan() -> None:
             try:
@@ -700,29 +726,50 @@ class TouchscreenApp:
                     active, ssid, signal, security = fields[:4]
                     candidate = (ssid, signal, security, active.strip() == "*")
                     old = networks.get(ssid)
-                    if old is None or int(signal or 0) > int(old[1] or 0):
+                    if old is None or (
+                        candidate[3] and not old[3]
+                    ) or (
+                        candidate[3] == old[3]
+                        and int(signal or 0) > int(old[1] or 0)
+                    ):
                         networks[ssid] = candidate
                 ordered = sorted(
                     networks.values(),
                     key=lambda item: (not item[3], -int(item[1] or 0), item[0].lower()),
                 )
-                self.root.after(0, lambda values=ordered: self._show_wifi_networks(values))
+                self.root.after(
+                    0,
+                    lambda values=ordered: self._show_wifi_networks(
+                        values, generation, connected_ssid
+                    ),
+                )
             except Exception as exc:
                 LOGGER.exception("Wi-Fi 검색 실패")
                 self.root.after(
                     0,
-                    lambda message=str(exc): self._set_wifi_status(
-                        f"검색 실패: {message}", RED
+                    lambda message=str(exc): self._wifi_scan_failed(
+                        generation, message
                     ),
                 )
 
         threading.Thread(target=scan, daemon=True, name="wifi-scan").start()
 
+    def _wifi_scan_failed(self, generation: int, message: str) -> None:
+        if generation == self.wifi_scan_generation:
+            self._set_wifi_status(f"검색 실패: {message}", RED)
+
     def _show_wifi_networks(
-        self, networks: list[tuple[str, str, str, bool]]
+        self,
+        networks: list[tuple[str, str, str, bool]],
+        generation: int,
+        connected_ssid: str | None = None,
     ) -> None:
         listbox = self.wifi_listbox
-        if not listbox or not listbox.winfo_exists():
+        if (
+            generation != self.wifi_scan_generation
+            or not listbox
+            or not listbox.winfo_exists()
+        ):
             return
         self.wifi_networks = networks
         listbox.delete(0, "end")
@@ -731,13 +778,32 @@ class TouchscreenApp:
             lock = "🔒" if security and security != "--" else ""
             listbox.insert("end", f"{connected}{ssid}   {signal}% {lock}")
         if networks:
-            active_index = next((i for i, item in enumerate(networks) if item[3]), 0)
-            listbox.selection_set(active_index)
-            listbox.see(active_index)
-            self._set_wifi_status(
-                "●는 현재 연결된 네트워크입니다. 비밀번호 입력 후 연결을 누르세요.",
-                GREEN if networks[active_index][3] else CYAN,
+            selected_index = next(
+                (i for i, item in enumerate(networks) if item[0] == connected_ssid),
+                None,
             )
+            if selected_index is None:
+                selected_index = next(
+                    (i for i, item in enumerate(networks) if item[3]), 0
+                )
+            listbox.selection_set(selected_index)
+            listbox.see(selected_index)
+            if connected_ssid is not None:
+                if (
+                    networks[selected_index][0] == connected_ssid
+                    and networks[selected_index][3]
+                ):
+                    self._set_wifi_status(f"{connected_ssid}에 연결되었습니다.", GREEN)
+                else:
+                    self._set_wifi_status(
+                        f"{connected_ssid} 연결을 확인하지 못했습니다. 다시 시도해 주세요.",
+                        RED,
+                    )
+            else:
+                self._set_wifi_status(
+                    "●는 현재 연결된 네트워크입니다. 비밀번호 입력 후 연결을 누르세요.",
+                    GREEN if networks[selected_index][3] else CYAN,
+                )
         else:
             self._set_wifi_status("검색된 Wi-Fi 네트워크가 없습니다.", RED)
 
@@ -760,43 +826,53 @@ class TouchscreenApp:
                 self.wifi_password.focus_set()
             return
         self._set_wifi_status(f"{ssid}에 연결하고 있습니다…")
+        if self.wifi_connect_button and self.wifi_connect_button.winfo_exists():
+            self.wifi_connect_button.configure(state="disabled")
 
         def connect() -> None:
             try:
-                command = ["nmcli", "--wait", "25"]
-                stdin = None
+                command = ["nmcli", "--wait", "60", "device", "wifi", "connect", ssid]
                 if password:
-                    command.append("--ask")
-                    stdin = password + "\n"
-                command.extend(["device", "wifi", "connect", ssid])
-                result = subprocess.run(
+                    command.extend(["password", password])
+                subprocess.run(
                     command,
-                    input=stdin,
                     check=True,
                     capture_output=True,
                     text=True,
-                    timeout=30,
+                    timeout=70,
                 )
-                message = result.stdout.strip() or f"{ssid} 연결 완료"
-                self.root.after(0, lambda: self._set_wifi_status(message, GREEN))
-                self.root.after(900, self._refresh_wifi_networks)
+                self.root.after(0, lambda: self._wifi_connected(ssid))
             except subprocess.CalledProcessError as exc:
-                message = (exc.stderr or exc.stdout or str(exc)).strip()
+                # CalledProcessError includes argv, which contains the password.
+                message = (exc.stderr or exc.stdout or "네트워크 연결에 실패했습니다.").strip()
+                if password:
+                    message = message.replace(password, "••••")
                 self.root.after(
                     0,
-                    lambda value=message: self._set_wifi_status(
-                        f"연결 실패: {value}", RED
-                    ),
+                    lambda value=message: self._wifi_connect_failed(value),
                 )
             except Exception as exc:
                 self.root.after(
                     0,
-                    lambda message=str(exc): self._set_wifi_status(
-                        f"연결 실패: {message}", RED
+                    lambda message=type(exc).__name__: self._wifi_connect_failed(
+                        f"연결 시간이 초과되었거나 명령 실행에 실패했습니다. ({message})"
                     ),
                 )
 
         threading.Thread(target=connect, daemon=True, name="wifi-connect").start()
+
+    def _wifi_connected(self, ssid: str) -> None:
+        if self.wifi_password and self.wifi_password.winfo_exists():
+            self.wifi_password.delete(0, "end")
+        if self.wifi_connect_button and self.wifi_connect_button.winfo_exists():
+            self.wifi_connect_button.configure(state="normal")
+        self._set_wifi_status(f"{ssid}에 연결되었습니다.", GREEN)
+        self._refresh_wifi_networks(connected_ssid=ssid)
+
+    def _wifi_connect_failed(self, message: str) -> None:
+        if self.wifi_connect_button and self.wifi_connect_button.winfo_exists():
+            self.wifi_connect_button.configure(state="normal")
+        self._set_wifi_status(f"연결 실패: {message}", RED)
 
     def show_selection(self) -> None:
         token, lower = self._build_robot_menu(
