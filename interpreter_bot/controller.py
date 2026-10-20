@@ -97,7 +97,14 @@ class SharedController:
         screen = str(state.get("screen", "home"))
         recording = bool(state.get("recording"))
         if screen == "home":
-            return [self._center(self._button("S  시작하기"), width)]
+            return [
+                self._center(
+                    self._button("S  시작하기")
+                    + "    "
+                    + self._button("W  Wi-Fi", GREEN),
+                    width,
+                )
+            ]
         if screen == "selection":
             return [
                 self._center(
